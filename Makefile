@@ -35,8 +35,18 @@ CC           := gcc
 
 all: modules tools
 
-load: install
-unload: uninstall
+# Hizli modül yükle/kaldır (sadece .ko gerekli, tools bağımsız)
+load: modules
+	@echo "[ LD ] VaultGuard modülü yükleniyor..."
+	-sudo rmmod vaultguard 2>/dev/null || true
+	sudo insmod vaultguard.ko
+	sudo chmod 666 /dev/vaultguard_dev 2>/dev/null || true
+	@echo "[ OK ] VaultGuard aktif. /proc/vaultguard hazır."
+
+unload:
+	@echo "[ RM ] VaultGuard modülü kaldırılıyor..."
+	sudo rmmod vaultguard
+	@echo "[ OK ] VaultGuard kaldırıldı."
 
 # Kernel modülünü derle
 modules:
