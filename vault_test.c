@@ -23,11 +23,8 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include <stdint.h>
-
-/* Kernel'dan paylaşılan tanımlar (userspace uyumluluğu için typedef) */
-typedef uint32_t __u32;
-typedef uint64_t __u64;
-typedef int64_t  __s64;
+#include <errno.h>
+#include <linux/types.h>
 
 #include "vaultguard.h"
 
@@ -94,7 +91,7 @@ static int test_get_labeled(const char *label)
 
     if (ioctl(fd, VAULT_IOC_GET_LABELED, &req) < 0) {
         printf("[-] [%s]: ERİŞİM REDDEDİLDİ (%s)\n",
-               label, strerror_r(errno, req.data, 64) ? "?" : req.data);
+               label, strerror(errno));
         memset(&req, 0, sizeof(req));
         return -1;
     }
