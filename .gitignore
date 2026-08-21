@@ -1,0 +1,24 @@
+# Linux Kernel Build Artifacts
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+*.cmd
+.*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+*.order
+*.symvers
+
+# Binaries / Executables
+vault_test
+tools/vaultctl
+
+# OS & Editor specific files
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/

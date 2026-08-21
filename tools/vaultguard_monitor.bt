@@ -1,0 +1,97 @@
+#!/usr/bin/env bpftrace
+/*
+ * vaultguard_monitor.bt — VaultGuard Gerçek Zamanlı eBPF İzleyici
+ *
+ * Tüm VaultGuard tracepoint'lerini dinler ve olayları formatlı
+ * olarak terminale yazdırır. Temel SIEM senaryolarında kullanılabilir.
+ *
+ * Kullanım:
+ *   sudo bpftrace vaultguard_monitor.bt
+ *
+ * Ön koşul:
+ *   - VaultGuard kernel modülü yüklü olmalı
+ *   - bpftrace kurulu olmalı (apt install bpftrace)
+ *
+ * Author: Efe
+ */
+
+BEGIN
+{
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    printf("  VaultGuard v2.0 — eBPF Güvenlik İzleyici Aktif\n");
+    printf("  Çıkmak için Ctrl+C\n");
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+}
+
+/* ── Olay 1: Canary Tuzağı ── */
+tracepoint:vaultguard:vg_canary_trap
+{
+    printf("[%s] 🚨 CANARY TRAP!\n", strftime("%H:%M:%S", nsecs));
+    printf("     Saldırgan PID : %d\n",  args->attacker_pid);
+    printf("     Sahip PID     : %d\n",  args->owner_pid);
+    printf("     Red Sebebi    : %d\n",  args->deny_reason);
+    printf("\n");
+}
+
+/* ── Olay 2: Bellek İmhası ── */
+tracepoint:vaultguard:vg_secret_wiped
+{
+    $reason = args->reason_code == 1 ? "TTL Doldu" :
+              args->reason_code == 2 ? "Acil İmha" : "Manuel Silme";
+    printf("[%s] 🗑  BELLEK İMHASI | Etiket: %s | Sebep: %s\n",
+           strftime("%H:%M:%S", nsecs), args->label, $reason);
+    printf("\n");
+}
+
+/* ── Olay 3: Sır Depolandı ── */
+tracepoint:vaultguard:vg_secret_stored
+{
+    printf("[%s] ✅ SIR DEPOLANDI\n", strftime("%H:%M:%S", nsecs));
+    printf("     Etiket  : %s\n",  args->label);
+    printf("     Sahip PID: %d  UID: %d\n", args->owner_pid, args->owner_uid);
+    printf("     TTL     : %lu sn\n", args->ttl_sec);
+    printf("\n");
+}
+
+/* ── Olay 4: Erişim Reddedildi ── */
+tracepoint:vaultguard:vg_access_denied
+{
+    printf("[%s] ❌ ERİŞİM REDDEDİLDİ\n", strftime("%H:%M:%S", nsecs));
+    printf("     Girişimci PID: %d  UID: %d\n",
+           args->attacker_pid, args->attacker_uid);
+    printf("     Etiket  : %s\n",  args->label);
+    printf("     Red Sebebi: %d\n", args->deny_reason);
+    printf("\n");
+}
+
+/* ── Olay 5: Karantina Değişimi ── */
+tracepoint:vaultguard:vg_quarantine_toggle
+{
+    $state = args->new_state ? "ETKİN (LOCKDOWN)" : "DEVRE DIŞI";
+    printf("[%s] 🔒 KARANTİNA: %s — Değiştiren PID: %d\n",
+           strftime("%H:%M:%S", nsecs), $state, args->changed_by_pid);
+    printf("\n");
+}
+
+/* ── Olay 6: Kripto Operasyonu ── */
+tracepoint:vaultguard:vg_crypto_operation
+{
+    $op  = args->op ? "Decrypt" : "Encrypt";
+    $res = args->success ? "✓ OK" : "✗ HATA";
+    printf("[%s] 🔑 KRİPTO %s | %s | Etiket: %s\n",
+           strftime("%H:%M:%S", nsecs), $op, $res, args->label);
+    printf("\n");
+}
+
+/* ── İstatistik Özeti (her 30 saniyede) ── */
+interval:s:30
+{
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    printf("[%s] 📊 30 SANIYE ÖZETİ\n", strftime("%H:%M:%S", nsecs));
+    printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+}
+
+END
+{
+    printf("\n[İzleyici sonlandırıldı]\n");
+}
