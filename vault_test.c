@@ -44,7 +44,7 @@ static void canary_signal_handler(int signum)
 static int test_store_legacy(const char *msg)
 {
     char buffer[SECRET_MAX_LEN];
-    strlcpy(buffer, msg, SECRET_MAX_LEN);
+    snprintf(buffer, sizeof(buffer), "%s", msg);
     if (ioctl(fd, VAULT_IOC_STORE_SECRET, buffer) >= 0) {
         printf("[+] Miras depolama başarılı. PID: %d\n", getpid());
         return 0;
@@ -72,8 +72,8 @@ static int test_store_labeled(const char *label, const char *data,
                               unsigned long ttl)
 {
     struct vault_user_request req = {0};
-    strlcpy(req.label, label, VAULT_LABEL_MAX_LEN);
-    strlcpy(req.data,  data,  SECRET_MAX_LEN);
+    snprintf(req.label, sizeof(req.label), "%s", label);
+    snprintf(req.data,  sizeof(req.data),  "%s", data);
     req.data_len = (uint32_t)strlen(req.data);
     req.ttl_sec  = (uint64_t)ttl;
 
@@ -90,7 +90,7 @@ static int test_store_labeled(const char *label, const char *data,
 static int test_get_labeled(const char *label)
 {
     struct vault_user_request req = {0};
-    strlcpy(req.label, label, VAULT_LABEL_MAX_LEN);
+    snprintf(req.label, sizeof(req.label), "%s", label);
 
     if (ioctl(fd, VAULT_IOC_GET_LABELED, &req) < 0) {
         printf("[-] [%s]: ERİŞİM REDDEDİLDİ (%s)\n",

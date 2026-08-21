@@ -24,10 +24,6 @@
  * License: GPLv2
  */
 
-/* eBPF ve Ftrace tracepoint'leri EN ÜSTTE tanımlanmalı */
-#define CREATE_TRACE_POINTS
-#include "vaultguard_trace.h"
-
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -62,6 +58,10 @@
 
 #include "vaultguard.h"
 #include "vaultguard_netlink.h"
+
+/* eBPF ve Ftrace tracepoint tanimlari header include'larindan sonra gelmeli */
+#define CREATE_TRACE_POINTS
+#include "vaultguard_trace.h"
 
 #define DRIVER_NAME "vaultguard"
 
@@ -402,7 +402,7 @@ static void vault_destroy_entry(struct vault_entry *entry, int reason_code)
     char label_copy[VAULT_LABEL_MAX_LEN];
 
     /* Label kopyası: bellek temizlenmeden önce tracepoint için */
-    strlcpy(label_copy, entry->label, VAULT_LABEL_MAX_LEN);
+    strscpy(label_copy, entry->label, sizeof(label_copy));
 
     /* Şifreli belleği fiziksel olarak sıfırla (DSE koruması) */
     memzero_explicit(entry->enc_buf, VAULT_ENC_BUF_LEN);
@@ -435,7 +435,7 @@ static void vault_slot_work_cb(struct work_struct *work)
     char label_copy[VAULT_LABEL_MAX_LEN];
 
     down_write(&vault_rwsem);
-    strlcpy(label_copy, entry->label, VAULT_LABEL_MAX_LEN);
+    strscpy(label_copy, entry->label, sizeof(label_copy));
     vault_destroy_entry(entry, 1 /* TTL doldu */);
     up_write(&vault_rwsem);
 
@@ -558,7 +558,7 @@ static long vault_ioctl_store_labeled(unsigned long arg)
     }
 
     /* Slot meta verisi doldur */
-    strlcpy(entry->label, ureq->label, VAULT_LABEL_MAX_LEN);
+    strscpy(entry->label, ureq->label, sizeof(entry->label));
     entry->enc_len      = enc_len;
     entry->plain_len    = (int)ureq->data_len;
     entry->owner_pid    = current->pid;
@@ -709,7 +709,7 @@ static long vault_ioctl_delete_labeled(unsigned long arg)
     if (copy_from_user(&ureq, (void __user *)arg, sizeof(ureq)))
         return -EFAULT;
     ureq.label[VAULT_LABEL_MAX_LEN - 1] = '\0';
-    strlcpy(label_copy, ureq.label, VAULT_LABEL_MAX_LEN);
+    strscpy(label_copy, ureq.label, sizeof(label_copy));
 
     down_write(&vault_rwsem);
     entry = vault_find_entry(label_copy);
@@ -761,8 +761,8 @@ static long vault_ioctl_list_labels(unsigned long arg)
     hash_for_each(vault_ht, bucket, entry, node) {
         if (resp->count >= VAULT_MAX_SLOTS)
             break;
-        strlcpy(resp->entries[resp->count].label,
-                entry->label, VAULT_LABEL_MAX_LEN);
+        strscpy(resp->entries[resp->count].label,
+                entry->label, sizeof(resp->entries[resp->count].label));
         /* Kalan TTL = expires_at - now */
         {
             ktime_t expires = ktime_add(entry->created_at,
@@ -834,7 +834,7 @@ static long vault_ioctl(struct file *filep, unsigned int cmd,
                     kfree(tmp);
                     return ret;
                 }
-                strlcpy(entry->label, "_legacy_", VAULT_LABEL_MAX_LEN);
+                strscpy(entry->label, "_legacy_", sizeof(entry->label));
                 entry->enc_len       = enc_len;
                 entry->plain_len     = (int)tmp->data_len;
                 entry->owner_pid     = current->pid;
@@ -866,9 +866,6 @@ static long vault_ioctl(struct file *filep, unsigned int cmd,
 
     if (cmd == VAULT_IOC_GET_SECRET) {
         /* Miras: _legacy_ etiketinden oku */
-        struct vault_user_request ureq = {
-            .label = "_legacy_",
-        };
         struct vault_entry *entry;
         u8   plain_buf[SECRET_MAX_LEN];
         int  deny_reason = 0, ret;
