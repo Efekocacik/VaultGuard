@@ -31,9 +31,12 @@ CFLAGS_USER := -O2 -Wall -Wextra -Wno-unused-parameter -I.
 CC           := gcc
 
 # ─── Varsayılan hedef ───────────────────────────────────────────────
-.PHONY: all clean install uninstall test monitor
+.PHONY: all clean install uninstall load unload test monitor
 
 all: modules tools
+
+load: install
+unload: uninstall
 
 # Kernel modülünü derle
 modules:
@@ -122,10 +125,15 @@ test: tools/vaultctl vault_test
 	sudo tools/vaultctl status
 	@echo ""
 
-	@echo "[ OK ] Tüm testler tamamlandı."
-
-# ─── eBPF İzleyici ──────────────────────────────────────────────────
+# ─── eBPF Izleyici ──────────────────────────────────────────────────
 monitor:
 	@which bpftrace > /dev/null 2>&1 || \
-	  (echo "bpftrace kurulu değil. Kurmak için: apt install bpftrace" && exit 1)
+	  (echo "bpftrace kurulu degil. Kurmak icin: apt install bpftrace" && exit 1)
 	sudo bpftrace tools/vaultguard_monitor.bt
+
+# ─── JARVIS Web HUD Arayuzu ─────────────────────────────────────────
+jarvis:
+	@echo "[ AI ] JARVIS Web HUD baslatiliyor..."
+	@pip3 install -q -r requirements.txt 2>/dev/null || true
+	python3 app.py
+

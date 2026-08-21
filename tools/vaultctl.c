@@ -35,11 +35,8 @@
 #include <linux/netlink.h>
 #include <sys/socket.h>
 
-/* Kernel header'larını taklit et (userspace için) */
 #include <stdint.h>
-typedef uint32_t __u32;
-typedef uint64_t __u64;
-typedef int64_t  __s64;
+#include <linux/types.h>
 
 #include "../vaultguard.h"
 #include "../vaultguard_netlink.h"
@@ -78,7 +75,7 @@ static int open_device(void) {
     return fd;
 }
 
-static void deny_reason_str(int reason, char *buf, size_t len) {
+static inline void deny_reason_str(int reason, char *buf, size_t len) {
     switch (reason) {
     case VAULT_DENY_QUARANTINE: snprintf(buf, len, "Karantina modu aktif"); break;
     case VAULT_DENY_PID:        snprintf(buf, len, "PID uyuşmazlığı");      break;
@@ -433,8 +430,9 @@ static int cmd_monitor(void)
         }
 
         /* VaultGuard tracepoint'lerini etkinleştir */
-        system("echo 1 > /sys/kernel/debug/tracing/events/vaultguard/enable "
-               "2>/dev/null");
+        if (system("echo 1 > /sys/kernel/debug/tracing/events/vaultguard/enable 2>/dev/null") < 0) {
+            /* sessizce gec */
+        }
 
         while (fgets(line, sizeof(line), f)) {
             /* Sadece vaultguard satırlarını filtrele */
