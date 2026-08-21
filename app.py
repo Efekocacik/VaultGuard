@@ -4,7 +4,6 @@ import time
 import datetime
 import threading
 import requests
-import pyttsx3
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
@@ -16,14 +15,15 @@ CORS(app)
 # async_mode='threading' → eventlet/gevent gerekmez, stdlib thread kullanır
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-# ─── TTS Motoru ───────────────────────────────────────────────────────────────
+# ─── TTS Motoru (İsteğe Bağlı) ────────────────────────────────────────────────
 try:
+    import pyttsx3
     _tts_engine = pyttsx3.init()
     _tts_engine.setProperty('rate', 170)
     _tts_engine.setProperty('volume', 1.0)
     TTS_AVAILABLE = True
 except Exception as _e:
-    print(f"[TTS Init Warning]: {_e} — sesli cevap devre disi.")
+    print("[TTS Bilgi]: pyttsx3 aktif degil - Sesli yanit pasif, metin modu aktif.")
     _tts_engine = None
     TTS_AVAILABLE = False
 
