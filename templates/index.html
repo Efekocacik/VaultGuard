@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS Core // VaultGuard Telemetry HUD</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=JetBrains+Mono:wght@300;500;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #030712;
+            --cyan: #00f0ff;
+            --cyan-glow: rgba(0, 240, 255, 0.4);
+            --red: #ff0055;
+            --red-glow: rgba(255, 0, 85, 0.4);
+            --panel-bg: rgba(6, 18, 38, 0.80);
+            --border: rgba(0, 240, 255, 0.25);
+            /* FIX: header=60px, footer=66px, gaps=20px*2 top padding */
+            --header-h: 60px;
+            --footer-h: 66px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* FIX: user-select:none sadece interaktif olmayan elemanlara uygulanmali */
+        body, header, .hud-grid, .hud-card, .card-header,
+        .telemetry-row, .reactor-wrapper, .actions-grid, .feed-msg {
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--bg);
+            background-image:
+                radial-gradient(circle at 50% 50%, rgba(0, 50, 100, 0.25) 0%, transparent 80%),
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 30px 30px, 30px 30px;
+            color: #d1f7ff;
+            font-family: 'JetBrains Mono', monospace;
+            /* FIX: height:100vh + flex column ile sabit duzen */
+            height: 100vh;
+            max-height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Header ── */
+        header {
+            flex: 0 0 var(--header-h);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 30px;
+            border-bottom: 1px solid var(--border);
+            background: linear-gradient(180deg, rgba(0, 240, 255, 0.08) 0%, transparent 100%);
+        }
+
+        .title-block {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .title-block h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 20px;
+            letter-spacing: 4px;
+            color: var(--cyan);
+            text-shadow: 0 0 10px var(--cyan-glow);
+            white-space: nowrap;
+        }
+
+        .status-badge {
+            font-size: 10px;
+            padding: 4px 10px;
+            border: 1px solid var(--cyan);
+            border-radius: 4px;
+            background: rgba(0, 240, 255, 0.1);
+            letter-spacing: 2px;
+            white-space: nowrap;
+        }
+
+        .status-badge.lockdown {
+            border-color: var(--red);
+            background: rgba(255, 0, 85, 0.12);
+            color: var(--red);
+            animation: pulse-red 1s infinite;
+        }
+
+        #live-clock {
+            font-size: 14px;
+            color: var(--cyan);
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 2px;
+            min-width: 80px;
+            text-align: right;
+        }
+
+        /* ── Ana HUD Izgarasi ── */
+        /* FIX: flex:1 + min-height:0 ile sadece kalan alani doldurmali */
+        .hud-grid {
+            flex: 1 1 0;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 320px 1fr 360px;
+            gap: 16px;
+            padding: 16px 24px;
+            overflow: hidden;
+        }
+
+        /* FIX: hud-card overflow:hidden olmali ve min-height:0 olmali */
+        .hud-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            backdrop-filter: blur(8px);
+            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.05);
+            overflow: hidden;      /* FIX: icerik tasmasini engelle */
+            min-height: 0;         /* FIX: flex child kaymayi onle */
+        }
+
+        /* Kose dekor */
+        .hud-card::before {
+            content: '';
+            position: absolute;
+            top: -1px; left: -1px;
+            width: 8px; height: 8px;
+            border-top: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+            pointer-events: none;
+        }
+
+        .hud-card::after {
+            content: '';
+            position: absolute;
+            bottom: -1px; right: -1px;
+            width: 8px; height: 8px;
+            border-bottom: 2px solid var(--cyan);
+            border-right: 2px solid var(--cyan);
+            pointer-events: none;
+        }
+
+        .card-header {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            color: var(--cyan);
+            letter-spacing: 2px;
+            margin-bottom: 12px;
+            flex: 0 0 auto;           /* FIX: shrink etmemeli */
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.15);
+            padding-bottom: 8px;
+        }
+
+        /* ── Sol Panel: Telemetri ── */
+        .telemetry-rows {
+            flex: 0 0 auto;
+        }
+
+        .telemetry-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 9px 0;
+            border-bottom: 1px dashed rgba(0, 240, 255, 0.1);
+            font-size: 12px;
+            gap: 8px;
+        }
+
+        .telemetry-label {
+            color: rgba(209, 247, 255, 0.65);
+            white-space: nowrap;
+        }
+
+        .telemetry-val {
+            font-weight: 800;
+            color: #fff;
+            font-size: 13px;
+            text-align: right;
+            word-break: break-all;
+        }
+
+        /* FIX: raw-proc icin ayri scroll alani */
+        .raw-section {
+            flex: 1 1 0;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            margin-top: 14px;
+            overflow: hidden;
+        }
+
+        .raw-section .card-header {
+            margin-bottom: 8px;
+        }
+
+        #raw-proc {
+            flex: 1 1 0;
+            min-height: 0;
+            font-size: 9.5px;
+            color: rgba(0, 240, 255, 0.65);
+            overflow-y: auto;    /* FIX: dikey scroll */
+            overflow-x: hidden;
+            white-space: pre-wrap;    /* FIX: yatay tasmayi sar */
+            word-break: break-all;
+            line-height: 1.5;
+            padding: 6px 4px;
+            background: rgba(0, 10, 25, 0.5);
+            border-radius: 4px;
+            border: 1px solid rgba(0, 240, 255, 0.08);
+        }
+
+        .alert-active {
+            color: var(--red) !important;
+            text-shadow: 0 0 8px var(--red-glow);
+            animation: pulse-red 1s infinite;
+        }
+
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
+        }
+
+        /* ── Merkez Panel: Arc Reactor ── */
+        .center-core {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-evenly;  /* FIX: space-evenly ile reactor + butonlar esit dagitilir */
+        }
+
+        .reactor-wrapper {
+            position: relative;
+            /* FIX: sabit boyut yerine min/max kullan */
+            width: min(200px, 45%);
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .ring {
+            position: absolute;
+            border-radius: 50%;
+            border: 2px dashed var(--cyan);
+            box-shadow: 0 0 12px var(--cyan-glow);
+        }
+
+        .ring-1 { width: 100%; height: 100%; animation: rotate-cw 18s linear infinite; }
+        .ring-2 { width: 74%; height: 74%; border-style: dotted; animation: rotate-ccw 10s linear infinite; }
+        .ring-3 { width: 50%; height: 50%; border-width: 1px; animation: rotate-cw 6s linear infinite; }
+
+        .core-center {
+            position: relative;
+            z-index: 2;
+            width: 28%;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            background: radial-gradient(circle, #fff 0%, var(--cyan) 60%, transparent 100%);
+            box-shadow: 0 0 20px var(--cyan), 0 0 40px rgba(0, 240, 255, 0.3);
+        }
+
+        @keyframes rotate-cw  { 100% { transform: rotate(360deg);  } }
+        @keyframes rotate-ccw { 100% { transform: rotate(-360deg); } }
+
+        /* FIX: actions-grid genisligini card icerigine gore ayarla */
+        .actions-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            width: 100%;
+        }
+
+        .action-btn {
+            background: rgba(0, 240, 255, 0.06);
+            border: 1px solid var(--border);
+            color: var(--cyan);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            padding: 10px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+            text-align: center;
+            letter-spacing: 0.5px;
+            line-height: 1.3;
+        }
+
+        .action-btn:hover {
+            background: rgba(0, 240, 255, 0.18);
+            box-shadow: 0 0 10px var(--cyan-glow);
+            color: #fff;
+            transform: translateY(-2px);
+        }
+
+        .action-btn:active {
+            transform: translateY(0);
+            background: rgba(0, 240, 255, 0.3);
+        }
+
+        /* FIX: danger buton stili */
+        .action-btn.danger {
+            border-color: rgba(255, 0, 85, 0.4);
+            color: rgba(255, 120, 150, 0.9);
+        }
+
+        .action-btn.danger:hover {
+            background: rgba(255, 0, 85, 0.18);
+            box-shadow: 0 0 10px var(--red-glow);
+            color: var(--red);
+            border-color: var(--red);
+        }
+
+        /* ── Sag Panel: Terminal ── */
+        /* FIX: terminal-feed overflow-y:auto ile scroll calisir */
+        .terminal-feed {
+            flex: 1 1 0;
+            min-height: 0;
+            overflow-y: auto;
+            font-size: 11px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding-right: 4px;
+        }
+
+        .feed-msg {
+            padding: 6px 10px;
+            border-left: 2px solid var(--cyan);
+            background: rgba(0, 240, 255, 0.03);
+            border-radius: 2px;
+            line-height: 1.4;
+            word-break: break-word;
+            flex-shrink: 0;        /* FIX: mesajlar sikismasin */
+        }
+
+        .feed-msg.jarvis {
+            border-color: #00ff88;
+            color: #9effc8;
+        }
+
+        .feed-msg .ts {
+            color: rgba(0, 240, 255, 0.4);
+            font-size: 9px;
+            margin-right: 4px;
+        }
+
+        /* ── Footer ── */
+        /* FIX: footer flex-shrink:0 ile asla kisilmasin */
+        footer {
+            flex: 0 0 var(--footer-h);
+            padding: 0 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(3, 7, 18, 0.97);
+        }
+
+        /* FIX: input user-select:text olmali */
+        .cmd-input {
+            flex: 1;
+            background: rgba(0, 240, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 10px 16px;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            outline: none;
+            user-select: text;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .cmd-input:focus {
+            border-color: var(--cyan);
+            box-shadow: 0 0 10px var(--cyan-glow);
+        }
+
+        .cmd-input::placeholder {
+            color: rgba(0, 240, 255, 0.3);
+            font-size: 11px;
+        }
+
+        .submit-btn {
+            background: var(--cyan);
+            color: #000;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            padding: 10px 22px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            letter-spacing: 1px;
+            font-size: 12px;
+            white-space: nowrap;
+            transition: box-shadow 0.2s, opacity 0.2s;
+            flex-shrink: 0;
+        }
+
+        .submit-btn:hover {
+            box-shadow: 0 0 18px var(--cyan);
+        }
+
+        .submit-btn:active {
+            opacity: 0.8;
+        }
+
+        /* FIX: Disabled state gonder butonu icin */
+        .submit-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 15, 30, 0.5); }
+        ::-webkit-scrollbar-thumb { background: rgba(0, 240, 255, 0.2); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--cyan); }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="title-block">
+            <h1>JARVIS // CORE HUD</h1>
+            <span class="status-badge" id="net-status">WEBSOCKET AKTIF</span>
+        </div>
+        <div id="live-clock">--:--:--</div>
+    </header>
+
+    <div class="hud-grid">
+
+        <!-- SOL: VaultGuard Cekirdek Telemetrisi -->
+        <div class="hud-card">
+            <div class="card-header">
+                <span>/proc/vaultguard</span>
+                <span>1 Hz CANLI</span>
+            </div>
+
+            <div class="telemetry-rows">
+                <div class="telemetry-row">
+                    <span class="telemetry-label">Karantina</span>
+                    <span class="telemetry-val" id="tele-status">YUKLENIYOR</span>
+                </div>
+                <div class="telemetry-row">
+                    <span class="telemetry-label">Aktif Sirlar</span>
+                    <span class="telemetry-val" id="tele-secrets">—</span>
+                </div>
+                <div class="telemetry-row">
+                    <span class="telemetry-label">Toplam Depolanan</span>
+                    <span class="telemetry-val" id="tele-total-stored">—</span>
+                </div>
+                <div class="telemetry-row">
+                    <span class="telemetry-label">Toplam Imha</span>
+                    <span class="telemetry-val" id="tele-total-purged">—</span>
+                </div>
+                <div class="telemetry-row">
+                    <span class="telemetry-label">Canary Alarmlari</span>
+                    <span class="telemetry-val" id="tele-canary">—</span>
+                </div>
+                <div class="telemetry-row">
+                    <span class="telemetry-label">Kripto Hatalari</span>
+                    <span class="telemetry-val" id="tele-crypto-err">—</span>
+                </div>
+                <div class="telemetry-row">
+                    <span class="telemetry-label">Varsayilan TTL</span>
+                    <span class="telemetry-val" id="tele-ttl">—</span>
+                </div>
+            </div>
+
+            <div class="raw-section">
+                <div class="card-header">
+                    <span>Ham Cekirdek Ciktisi</span>
+                    <span id="raw-update-ts" style="font-size:9px; color: rgba(0,240,255,0.4);">—</span>
+                </div>
+                <pre id="raw-proc">Modul bekleniyor...</pre>
+            </div>
+        </div>
+
+        <!-- ORTA: Arc Reactor & Hizli Komutlar -->
+        <div class="hud-card center-core">
+            <div class="reactor-wrapper">
+                <div class="ring ring-1"></div>
+                <div class="ring ring-2"></div>
+                <div class="ring ring-3"></div>
+                <div class="core-center"></div>
+            </div>
+
+            <div class="actions-grid">
+                <button class="action-btn" onclick="sendQuickCmd('karantina aktif et')">
+                    KARANTINA AKTIF
+                </button>
+                <button class="action-btn" onclick="sendQuickCmd('karantina kapat')">
+                    GUVENLI MOD
+                </button>
+                <button class="action-btn danger" onclick="sendQuickCmd('acil bellek imha')">
+                    ACIL BELLEK SIL
+                </button>
+                <button class="action-btn" onclick="sendQuickCmd('durum raporu')">
+                    DURUM RAPORU
+                </button>
+            </div>
+        </div>
+
+        <!-- SAG: Terminal Log Akisi -->
+        <div class="hud-card">
+            <div class="card-header">
+                <span>TERMINAL GUNLUGU</span>
+                <span id="log-count" style="font-size:10px;">0 KAYIT</span>
+            </div>
+            <div class="terminal-feed" id="log-feed">
+                <div class="feed-msg jarvis">
+                    <span class="ts">BOOT</span>[JARVIS]: Telemetri paneli baslatildi efendim.
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <footer>
+        <input
+            type="text"
+            class="cmd-input"
+            id="cmd-input"
+            placeholder="JARVIS'e komut verin veya soru sorun... (Enter ile gonderin)"
+            autocomplete="off"
+            spellcheck="false"
+        >
+        <button class="submit-btn" id="send-btn" onclick="submitInput()">GONDER</button>
+    </footer>
+
+    <script>
+        /* ─── WebSocket Baglantisi ─── */
+        const socket = io({
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 10
+        });
+        let logCounter = 0;
+
+        /* ─── Baglanti Durum Gostergesi ─── */
+        socket.on('connect', () => {
+            const badge = document.getElementById('net-status');
+            badge.textContent = 'WEBSOCKET AKTIF';
+            badge.className = 'status-badge';
+        });
+
+        socket.on('disconnect', () => {
+            const badge = document.getElementById('net-status');
+            badge.textContent = 'BAGLANTI KESILDI';
+            badge.className = 'status-badge lockdown';
+            addLog('[SYS]: WebSocket baglantisi kesildi. Yeniden baglaniliyor...', false, true);
+        });
+
+        socket.on('connect_error', () => {
+            const badge = document.getElementById('net-status');
+            badge.textContent = 'BAGLANTI HATASI';
+            badge.className = 'status-badge lockdown';
+        });
+
+        /* ─── Canli Saat ─── */
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('live-clock').textContent = now.toTimeString().slice(0, 8);
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        /* ─── Telemetri Guncellemesi ─── */
+        socket.on('telemetry_update', (data) => {
+            // Karantina durumu
+            const statusEl = document.getElementById('tele-status');
+            const raw = (data.status || 'BILINMIYOR').trim();
+            statusEl.textContent = raw;
+
+            const isAlarm = raw.includes('ACTIVE') || raw.includes('LOCKDOWN');
+            toggleAlert(statusEl, isAlarm);
+
+            // Status badge guncelle
+            const badge = document.getElementById('net-status');
+            if (isAlarm) {
+                badge.textContent = 'LOCKDOWN AKTIF';
+                badge.className = 'status-badge lockdown';
+            } else if (socket.connected) {
+                badge.textContent = 'WEBSOCKET AKTIF';
+                badge.className = 'status-badge';
+            }
+
+            // Sayisal metrikler
+            setText('tele-secrets',      data.active_secrets  ?? '—');
+            setText('tele-total-stored', data.total_stored    ?? '—');
+            setText('tele-total-purged', data.total_purged    ?? '—');
+            setText('tele-ttl',          data.default_ttl != null ? data.default_ttl + 's' : '—');
+
+            // Canary alami
+            const canaryEl = document.getElementById('tele-canary');
+            const canaryCount = data.canary_alerts ?? 0;
+            canaryEl.textContent = canaryCount;
+            toggleAlert(canaryEl, canaryCount > 0);
+
+            // Kripto hatalari
+            const cryptoEl = document.getElementById('tele-crypto-err');
+            const cryptoCount = data.crypto_errors ?? 0;
+            cryptoEl.textContent = cryptoCount;
+            toggleAlert(cryptoEl, cryptoCount > 0);
+
+            // Ham proc ciktisi
+            const rawEl = document.getElementById('raw-proc');
+            rawEl.textContent = data.raw || '— MODUL CEVRIMDISI —';
+            document.getElementById('raw-update-ts').textContent =
+                data.timestamp || new Date().toTimeString().slice(0, 8);
+        });
+
+        /* ─── JARVIS Yanit ─── */
+        socket.on('jarvis_reply', (data) => {
+            addLog(`[SEN ]: ${data.command}`, false);
+            addLog(`[JARVIS]: ${data.response}`, true, false, data.timestamp);
+        });
+
+        /* ─── Yardimci: Alert toggle ─── */
+        function toggleAlert(el, on) {
+            if (on) el.classList.add('alert-active');
+            else     el.classList.remove('alert-active');
+        }
+
+        /* ─── Yardimci: text guncelle ─── */
+        function setText(id, val) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        }
+
+        /* ─── Terminal Log ─── */
+        function addLog(text, isJarvis = false, isSystem = false, timeStr = null) {
+            const feed  = document.getElementById('log-feed');
+            const div   = document.createElement('div');
+            const tsStr = timeStr || new Date().toTimeString().slice(0, 8);
+
+            div.className = 'feed-msg' + (isJarvis ? ' jarvis' : '') + (isSystem ? ' system' : '');
+            div.innerHTML  = `<span class="ts">${tsStr}</span>${escapeHtml(text)}`;
+
+            feed.appendChild(div);
+
+            // Scroll: en altta ise otomatik asagi cek
+            const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 60;
+            if (atBottom) feed.scrollTop = feed.scrollHeight;
+
+            logCounter++;
+            document.getElementById('log-count').textContent = `${logCounter} KAYIT`;
+        }
+
+        /* ─── XSS korumasi ─── */
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        /* ─── Komut Gonderme ─── */
+        function submitInput() {
+            const input   = document.getElementById('cmd-input');
+            const sendBtn = document.getElementById('send-btn');
+            const val     = input.value.trim();
+            if (!val) return;
+
+            sendBtn.disabled = true;
+            socket.emit('send_command', { command: val });
+            input.value = '';
+
+            // Buton kilitlenmesini 1 saniye sonra kaldir
+            setTimeout(() => { sendBtn.disabled = false; }, 1000);
+        }
+
+        /* ─── Hizli Komut ─── */
+        function sendQuickCmd(cmdText) {
+            socket.emit('send_command', { command: cmdText });
+            addLog(`[SEN ]: ${cmdText}`, false);
+        }
+
+        /* ─── Enter ile gonder ─── */
+        document.getElementById('cmd-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitInput();
+            }
+        });
+    </script>
+</body>
+</html>
