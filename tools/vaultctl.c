@@ -260,7 +260,7 @@ static int cmd_purge(void)
     char confirm[8];
 
     printf(COLOR_RED COLOR_BOLD
-           "\n⚠ UYARI: Tüm sırlar kriptografik olarak imha edilecek!\n"
+           "\n[UYARI] Tum sirlar kriptografik olarak imha edilecek!\n"
            COLOR_RESET);
     printf("Onaylamak için 'PURGE' yazın: ");
     fflush(stdout);
